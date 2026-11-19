@@ -1,0 +1,26 @@
+Package: rpMMD
+Type: Package
+Title: Random-Projection MMD Tests for Multivariate Two-Sample Problems
+Version: 0.0.0.9000
+Authors@R: 
+    person(
+      given = "Snehashis",
+      family = "De",
+      email = "snehashisde2000@gmail.com",
+      role = c("aut", "cre")
+    )
+Description: Provides an in-progress implementation of random-projection
+    maximum mean discrepancy methods for multivariate two-sample problems.
+    The package contains utilities for generating random projection directions,
+    projecting multivariate samples, computing one-dimensional Gaussian-kernel
+    MMD statistics, and building the main testing workflow. The final project
+    will add the paper-specific combined test statistics, permutation
+    calibration, computational acceleration, documentation, and examples.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
