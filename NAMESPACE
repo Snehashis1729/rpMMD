@@ -3,3 +3,4 @@
 export(rpmmd_directions)
 export(rpmmd_mmd)
 export(rpmmd_project)
+export(rpmmd_test)
