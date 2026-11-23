@@ -11,8 +11,8 @@
 #' @param bandwidth Positive numeric value giving the Gaussian-kernel
 #'   bandwidth. If NULL, a median-distance rule is used.
 #'
-#' @return A non-negative numeric value containing the empirical
-#'   squared MMD statistic.
+#' @return A numeric value containing the unbiased empirical
+#'   squared MMD statistic, which may be negative.
 #'
 #' @examples
 #' set.seed(1)
@@ -84,14 +84,18 @@ rpmmd_mmd <- function(x, y, bandwidth = NULL) {
   Kxx <- gaussian_kernel(x, x)
   Kyy <- gaussian_kernel(y, y)
   Kxy <- gaussian_kernel(x, y)
+  # Unbiased empirical squared MMD (Equation 7 of Shi et al., 2025).
   
-  # Biased empirical squared MMD.
+  # Diagonal kernel entries are excluded from within-sample sums.
+  n <- length(x)
+  m <- length(y)
+  
   mmd_squared <-
-    mean(Kxx) +
-    mean(Kyy) -
+    (sum(Kxx) - sum(diag(Kxx))) / (n * (n - 1)) +
+    (sum(Kyy) - sum(diag(Kyy))) / (m * (m - 1)) -
     2 * mean(Kxy)
   
-  # Numerical roundoff can occasionally produce a tiny negative value,
-  # although squared MMD is theoretically non-negative.
-  max(mmd_squared, 0)
+  # The unbiased squared MMD estimator can be negative.
+  mmd_squared 
+
 }
