@@ -1,26 +1,29 @@
 
 #' Random-projection MMD two-sample test
 #'
-#' Tests whether two multivariate samples come from the same distribution
-#' using random projections and Gaussian-kernel MMD statistics.
-#' The projection-specific statistics are aggregated using either a
-#' Cramer-von Mises (CvM) or Kolmogorov-Smirnov (KS) type statistic.
-#' A permutation test is used to calculate the p-value.
+#' Tests equality of two multivariate distributions using
+#' random projections and Gaussian-kernel MMD statistics.
 #'
-#' @param X Numeric matrix containing the first multivariate sample.
-#'   Observations are stored in rows and variables in columns.
-#' @param Y Numeric matrix containing the second multivariate sample.
-#'   Observations are stored in rows and variables in columns.
-#' @param statistic Character string specifying the combined statistic.
-#'   Either "cvm" or "ks".
-#' @param nproj Positive integer giving the number of random projections.
-#' @param bandwidth Optional positive bandwidth passed to \code{rpmmd_mmd()}.
-#'   If NULL, the default bandwidth rule in \code{rpmmd_mmd()} is used.
-#' @param nperm Positive integer giving the number of random permutations.
+#' @param X Numeric matrix containing the first sample.
+#'   Observations are stored in rows.
+#' @param Y Numeric matrix containing the second sample.
+#'   Observations are stored in rows.
+#' @param statistic Combined statistic: "cvm" or "ks".
+#' @param nproj Positive integer giving the number of projections.
+#' @param bandwidth Positive finite bandwidth or NULL.
+#'   If NULL, a pooled median bandwidth is selected separately
+#'   for each projection and reused across permutations.
+#' @param nperm Positive integer giving the number of permutations.
+#' @param engine Computational engine: "cpp" or "r".
 #'
-#' @return A list containing the statistic type, number of projections,
-#'   projection directions, projection-specific MMD values, combined
-#'   statistic, permutation statistics, and permutation p-value.
+#' @details Projection directions and bandwidths remain fixed
+#'   across permutations. A small floating-point tolerance is
+#'   used when comparing permutation and observed statistics,
+#'   on the squared scale for the KS statistic.
+#'
+#' @return An object of class rpmmd_result containing projection directions, bandwidths,
+#'   projection-specific MMD values, combined statistic,
+#'   permutation statistics and permutation p-value.
 #'
 #' @examples
 #' set.seed(1)
@@ -35,151 +38,188 @@ rpmmd_test <- function(
     statistic = c("cvm", "ks"),
     nproj = 100,
     bandwidth = NULL,
-    nperm = 999
+    nperm = 999,
+    engine = c("cpp", "r")
 ) {
-  
-  # Validate the two multivariate samples.
-  if (!is.matrix(X) || !is.numeric(X)) {
-    stop("`X` must be a numeric matrix.")
+
+  statistic <- match.arg(statistic)
+  engine <- match.arg(engine)
+
+  # Validate the input matrices.
+  if (!is.matrix(X) || !is.numeric(X) || is.complex(X)) {
+    stop("`X` must be a real numeric matrix.")
   }
-  
-  if (!is.matrix(Y) || !is.numeric(Y)) {
-    stop("`Y` must be a numeric matrix.")
+
+  if (!is.matrix(Y) || !is.numeric(Y) || is.complex(Y)) {
+    stop("`Y` must be a real numeric matrix.")
   }
-  
+
   if (ncol(X) != ncol(Y)) {
-    stop("`X` and `Y` must have the same number of columns.")
+    stop("Both samples must have the same number of columns.")
   }
-  
-  # The unbiased MMD estimator requires at least two observations
-  # in each sample.
+
   if (nrow(X) < 2 || nrow(Y) < 2) {
     stop("Both samples must contain at least two observations.")
   }
-  
+
   if (ncol(X) < 1) {
     stop("Both samples must contain at least one variable.")
   }
-  
+
   if (any(!is.finite(X)) || any(!is.finite(Y))) {
-    stop("`X` and `Y` must contain only finite values.")
+    stop("Both samples must contain only finite values.")
   }
-  
-  statistic <- match.arg(statistic)
-  
-  # Validate the number of random projections.
-  if (length(nproj) != 1 ||
-      !is.numeric(nproj) ||
-      is.na(nproj) ||
-      !is.finite(nproj) ||
-      nproj < 1 ||
-      nproj != floor(nproj)) {
+
+  # Validate the number of projections and permutations.
+  positive_integer <- function(z) {
+    length(z) == 1 &&
+      is.numeric(z) &&
+      !is.complex(z) &&
+      is.finite(z) &&
+      z >= 1 &&
+      z <= .Machine$integer.max &&
+      z == floor(z)
+  }
+
+  if (!positive_integer(nproj)) {
     stop("`nproj` must be a positive integer.")
   }
-  
-  # Validate the number of permutations.
-  if (length(nperm) != 1 ||
-      !is.numeric(nperm) ||
-      is.na(nperm) ||
-      !is.finite(nperm) ||
-      nperm < 1 ||
-      nperm != floor(nperm)) {
+
+  if (!positive_integer(nperm)) {
     stop("`nperm` must be a positive integer.")
   }
-  
-  # Generate random unit directions.
-  directions <- rpmmd_directions(
-    p = ncol(X),
-    nproj = nproj
-  )
-  
-  # Project the original samples.
-  projected <- rpmmd_project(
-    X = X,
-    Y = Y,
-    directions = directions
-  )
-  
-  # Compute MMD for each original projection.
-  mmd_by_projection <- vapply(
-    seq_len(nproj),
-    function(j) {
-      rpmmd_mmd(
-        x = projected$X_proj[, j],
-        y = projected$Y_proj[, j],
-        bandwidth = bandwidth
-      )
-    },
-    numeric(1)
-  )
-  
-  # Combine projection-specific MMD values.
-  if (statistic == "cvm") {
-    combined_statistic <- mean(mmd_by_projection)
-  } else {
-    combined_statistic <- sqrt(max(0, max(mmd_by_projection)))
+
+  if (!is.null(bandwidth)) {
+
+    if (length(bandwidth) != 1 ||
+        !is.numeric(bandwidth) ||
+        is.complex(bandwidth) ||
+        !is.finite(bandwidth) ||
+        bandwidth <= 0) {
+      stop("`bandwidth` must be a positive finite number.")
+    }
   }
-  
-  # Pool the observations for permutation testing.
+
   n <- nrow(X)
   m <- nrow(Y)
-  Z <- rbind(X, Y)
-  
-  # Allocate storage for permutation statistics.
-  perm_statistics <- numeric(nperm)
-  
-  # Perform permutation testing.
-  for (b in seq_len(nperm)) {
-    
-    # Randomly permute the pooled observations.
-    perm_indices <- sample.int(n + m)
-    
-    # Split the permuted observations into two groups.
-    X_perm <- Z[perm_indices[seq_len(n)], , drop = FALSE]
-    Y_perm <- Z[perm_indices[n + seq_len(m)], , drop = FALSE]
-    
-    # Use the same projection directions as the original test.
-    projected_perm <- rpmmd_project(
-      X = X_perm,
-      Y = Y_perm,
-      directions = directions
-    )
-    
-    # Compute MMD for each permuted projection.
-    mmd_perm <- vapply(
+
+  # Generate random directions only once.
+  directions <- rpmmd_directions(ncol(X), nproj)
+
+  # Project all observations only once.
+  projected <- rpmmd_project(X, Y, directions)
+
+  Z_proj <- rbind(
+    projected$X_proj,
+    projected$Y_proj
+  )
+
+  if (any(!is.finite(Z_proj))) {
+    stop("Projected observations must be finite.")
+  }
+
+  ix <- seq_len(n)
+  iy <- n + seq_len(m)
+
+  # Compute the bandwidth for each direction only once.
+  bandwidths <- if (is.null(bandwidth)) {
+
+    vapply(
       seq_len(nproj),
       function(j) {
-        rpmmd_mmd(
-          x = projected_perm$X_proj[, j],
-          y = projected_perm$Y_proj[, j],
-          bandwidth = bandwidth
+        rpmmd_bandwidth(
+          Z_proj[ix, j],
+          Z_proj[iy, j]
         )
       },
       numeric(1)
     )
-    
-    # Aggregate the permutation-specific MMD values.
-    if (statistic == "cvm") {
-      perm_statistics[b] <- mean(mmd_perm)
-    } else {
-      perm_statistics[b] <- sqrt(max(0, max(mmd_perm)))
-    }
+
+  } else {
+
+    rep(bandwidth, nproj)
   }
-  
-  # Monte Carlo permutation p-value.
+
+  # Compute MMD for a given partition of the pooled sample.
+  compute_mmd <- function(index_x, index_y) {
+
+    vapply(
+      seq_len(nproj),
+      function(j) {
+        rpmmd_mmd(
+          Z_proj[index_x, j],
+          Z_proj[index_y, j],
+          bandwidth = bandwidths[j],
+          engine = engine
+        )
+      },
+      numeric(1)
+    )
+  }
+
+  # Aggregate the projection-specific MMD estimates.
+  aggregate_mmd <- function(values) {
+
+    if (statistic == "cvm") {
+      return(mean(values))
+    }
+
+    sqrt(max(0, max(values)))
+  }
+
+  # Observed statistic.
+  mmd_by_projection <- compute_mmd(ix, iy)
+
+  combined_statistic <- aggregate_mmd(
+    mmd_by_projection
+  )
+
+  # Permutation calibration.
+  perm_statistics <- numeric(nperm)
+
+  for (b in seq_len(nperm)) {
+
+    indices <- sample.int(n + m)
+
+    index_x <- sort(indices[ix])
+    index_y <- sort(indices[iy])
+
+    perm_statistics[b] <- aggregate_mmd(
+      compute_mmd(index_x, index_y)
+    )
+  }
+
+  # Compare statistics with a small numerical tolerance.
+  observed <- combined_statistic
+  permuted <- perm_statistics
+
+  if (statistic == "ks") {
+    observed <- observed^2
+    permuted <- permuted^2
+  }
+
+  tolerance <- 64 * .Machine$double.eps *
+    max(1, abs(observed))
+
   p_value <- (
-    1 + sum(perm_statistics >= combined_statistic)
+    1 + sum(permuted >= observed - tolerance)
   ) / (nperm + 1)
-  
-  # Return the test results.
-  list(
+
+  # Return test results.
+  new_rpmmd_result(list(
     statistic = statistic,
     nproj = nproj,
     nperm = nperm,
     directions = directions,
+    bandwidths = bandwidths,
     mmd_by_projection = mmd_by_projection,
     combined_statistic = combined_statistic,
     perm_statistics = perm_statistics,
-    p_value = p_value
-  )
+    p_value = p_value,
+    engine = engine,
+    n = n,
+    m = m,
+    dimension = ncol(X)
+  ))
 }
+

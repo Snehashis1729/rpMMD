@@ -4,33 +4,30 @@
 \alias{rpmmd_mmd}
 \title{Compute Gaussian-kernel MMD for two projected samples}
 \usage{
-rpmmd_mmd(x, y, bandwidth = NULL)
+rpmmd_mmd(x, y, bandwidth = NULL, engine = c("cpp", "r"))
 }
 \arguments{
-\item{x}{Numeric vector containing the first projected sample.}
+\item{x}{Numeric vector containing the first sample.}
 
-\item{y}{Numeric vector containing the second projected sample.}
+\item{y}{Numeric vector containing the second sample.}
 
-\item{bandwidth}{Positive numeric value giving the Gaussian-kernel
-bandwidth. If NULL, a median-distance rule is used.}
+\item{bandwidth}{Positive finite Gaussian-kernel bandwidth.
+If NULL, the median of positive pooled pairwise distances is used.}
+
+\item{engine}{Computational engine, either "cpp" or "r".}
 }
 \value{
-A non-negative numeric value containing the empirical
-squared MMD statistic.
+A numeric value containing the unbiased squared
+MMD estimate, which may be negative.
 }
 \description{
-Computes the empirical squared maximum mean discrepancy (MMD) between
-two one-dimensional samples using a Gaussian kernel.
-}
-\details{
-This function is intended to be used after the multivariate observations
-have been projected onto a single random direction.
+Computes the unbiased empirical squared maximum mean
+discrepancy between two one-dimensional samples.
 }
 \examples{
 set.seed(1)
 x <- stats::rnorm(30)
 y <- stats::rnorm(30, mean = 0.5)
-
 rpmmd_mmd(x, y)
 
 }

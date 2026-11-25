@@ -4,3 +4,5 @@
 ^\.github$
 ^INTERMEDIATE_CHECKLIST\.md$
 ^GIT_STEPS\.md$
+^doc$
+^Meta$

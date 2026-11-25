@@ -2,45 +2,56 @@
 % Please edit documentation in R/rpmmd_test.R
 \name{rpmmd_test}
 \alias{rpmmd_test}
-\title{Run the initial random-projection MMD workflow}
+\title{Random-projection MMD two-sample test}
 \usage{
-rpmmd_test(X, Y, statistic = c("cvm", "ks"), nproj = 100, bandwidth = NULL)
+rpmmd_test(
+  X,
+  Y,
+  statistic = c("cvm", "ks"),
+  nproj = 100,
+  bandwidth = NULL,
+  nperm = 999,
+  engine = c("cpp", "r")
+)
 }
 \arguments{
-\item{X}{Numeric matrix containing the first multivariate sample.
-Observations are stored in rows and variables in columns.}
+\item{X}{Numeric matrix containing the first sample.
+Observations are stored in rows.}
 
-\item{Y}{Numeric matrix containing the second multivariate sample.
-Observations are stored in rows and variables in columns.}
+\item{Y}{Numeric matrix containing the second sample.
+Observations are stored in rows.}
 
-\item{statistic}{Character string specifying the planned combined
-statistic. Currently either "cvm" or "ks".}
+\item{statistic}{Combined statistic: "cvm" or "ks".}
 
-\item{nproj}{Positive integer giving the number of random projections.}
+\item{nproj}{Positive integer giving the number of projections.}
 
-\item{bandwidth}{Optional positive bandwidth passed to \code{rpmmd_mmd()}.
-If NULL, the default bandwidth rule in \code{rpmmd_mmd()} is used.}
+\item{bandwidth}{Positive finite bandwidth or NULL.
+If NULL, a pooled median bandwidth is selected separately
+for each projection and reused across permutations.}
+
+\item{nperm}{Positive integer giving the number of permutations.}
+
+\item{engine}{Computational engine: "cpp" or "r".}
 }
 \value{
-A list containing the requested statistic type, random projection
-directions, projection-specific MMD values, and placeholders for the
-final combined statistic and p-value.
+An object of class rpmmd_result containing projection directions, bandwidths,
+projection-specific MMD values, combined statistic,
+permutation statistics and permutation p-value.
 }
 \description{
-Applies the current rpMMD workflow to two multivariate samples.
-Random projection directions are generated, both samples are projected
-onto those directions, and an MMD value is computed for each projection.
+Tests equality of two multivariate distributions using
+random projections and Gaussian-kernel MMD statistics.
 }
 \details{
-The final combined test statistic and permutation-based p-value will be
-added in a later stage of the project.
+Projection directions and bandwidths remain fixed
+across permutations. A small floating-point tolerance is
+used when comparing permutation and observed statistics,
+on the squared scale for the KS statistic.
 }
 \examples{
 set.seed(1)
-
 X <- matrix(stats::rnorm(60), nrow = 20, ncol = 3)
 Y <- matrix(stats::rnorm(60, mean = 0.3), nrow = 20, ncol = 3)
-
-rpmmd_test(X, Y, nproj = 10)
+rpmmd_test(X, Y, nproj = 10, nperm = 19)
 
 }
