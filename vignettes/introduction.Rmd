@@ -1,0 +1,229 @@
+---
+title: "Introduction to rpMMD"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to rpMMD}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+library(rpMMD)
+```
+
+## 1. Introduction
+
+The rpMMD package implements random-projection maximum mean
+discrepancy methods for multivariate two-sample testing.
+
+Given two independent samples from distributions P and Q,
+the objective is to test
+
+$$
+H_0: P = Q \qquad \text{versus} \qquad H_1: P \neq Q.
+$$
+
+Random projections reduce the multivariate problem to
+a collection of one-dimensional two-sample problems.
+
+## 2. Random projection directions
+
+Independent standard Gaussian vectors are normalized
+to generate directions uniformly distributed on the unit sphere.
+
+$$
+u_j = \frac{Z_j}{\|Z_j\|_2},
+\qquad Z_j \sim N_p(0,I_p).
+$$
+
+```{r directions}
+set.seed(123)
+U <- rpmmd_directions(p = 3, nproj = 5)
+U
+sqrt(rowSums(U^2))
+```
+
+## 3. Projecting multivariate observations
+
+Observations are stored in rows and variables in columns.
+Each direction produces a one-dimensional projected sample.
+
+```{r projection}
+set.seed(123)
+X <- matrix(rnorm(150), nrow = 50, ncol = 3)
+Y <- matrix(rnorm(150, mean = 0.5), nrow = 50, ncol = 3)
+
+projected <- rpmmd_project(X, Y, U)
+
+dim(projected$X_proj)
+dim(projected$Y_proj)
+```
+
+## 4. Gaussian-kernel MMD
+
+The Gaussian kernel with bandwidth h is defined by
+
+$$
+k_h(x,y) = \exp\left(-\frac{(x-y)^2}{2h^2}\right).
+$$
+
+For a fixed bandwidth, the unbiased squared MMD estimator is
+
+$$
+\widehat{\mathrm{MMD}}^2 =
+\frac{\sum_{i\neq j}k_h(x_i,x_j)}{n(n-1)}
++
+\frac{\sum_{i\neq j}k_h(y_i,y_j)}{m(m-1)}
+-
+\frac{2\sum_{i,j}k_h(x_i,y_j)}{nm}.
+$$
+
+This estimator can take negative values in finite samples.
+
+By default, the bandwidth is selected using the median
+of positive pairwise distances in the pooled sample.
+This data-dependent choice need not preserve exact
+finite-sample unbiasedness.
+
+```{r mmd}
+rpmmd_mmd(
+  projected$X_proj[, 1],
+  projected$Y_proj[, 1]
+)
+```
+
+## 5. Combined test statistics
+
+Let D_j denote the estimated squared MMD along direction j.
+The current implementation uses the following
+finite-projection approximations.
+
+### PCvM-type statistic
+
+$$
+T_{\mathrm{CvM}} = \frac{1}{K}\sum_{j=1}^{K}D_j.
+$$
+
+### PKS-type statistic
+
+$$
+T_{\mathrm{KS}} = \sqrt{\max(0,D_1,\ldots,D_K)}.
+$$
+
+## 6. Permutation calibration
+
+Under the null hypothesis, independent observations
+from the two samples are exchangeable.
+
+Projection directions and pooled bandwidths remain fixed
+throughout permutation calibration.
+
+The Monte Carlo permutation p-value is
+
+$$
+\widehat p =
+\frac{1+\sum_{b=1}^{B}
+\mathbf{1}\{T_b \geq T_{\mathrm{obs}}\}}{B+1}.
+$$
+
+The implementation includes a small numerical tolerance
+when comparing statistics to accommodate rounding errors.
+
+## 7. Example: Mean-shift alternative
+
+```{r cvm-example}
+set.seed(456)
+
+fit_cvm <- rpmmd_test(
+  X, Y,
+  statistic = "cvm",
+  nproj = 20,
+  nperm = 199
+)
+
+print(fit_cvm)
+summary(fit_cvm)
+```
+
+### Permutation distribution
+
+```{r cvm-plot}
+plot(fit_cvm)
+```
+
+## 8. PKS example
+
+```{r ks-example}
+set.seed(456)
+
+fit_ks <- rpmmd_test(
+  X, Y,
+  statistic = "ks",
+  nproj = 20,
+  nperm = 199
+)
+
+print(fit_ks)
+plot(fit_ks)
+```
+
+## 9. Example under the null hypothesis
+
+```{r null-example}
+set.seed(789)
+
+X0 <- matrix(rnorm(150), ncol = 3)
+Y0 <- matrix(rnorm(150), ncol = 3)
+
+fit_null <- rpmmd_test(
+  X0, Y0,
+  nproj = 20,
+  nperm = 199
+)
+
+print(fit_null)
+plot(fit_null)
+```
+
+A single example does not establish Type I error control.
+Systematic simulation studies are planned for later development.
+
+## 10. Computational engines
+
+Both R and C++ implementations are available.
+The C++ implementation avoids allocating full kernel matrices
+and exploits symmetry in within-sample kernel evaluations.
+
+```{r computational-engines}
+set.seed(123)
+x <- rnorm(100)
+y <- rnorm(120, mean = 0.5)
+
+mmd_r <- rpmmd_mmd(x, y, engine = "r")
+mmd_cpp <- rpmmd_mmd(x, y, engine = "cpp")
+
+mmd_r
+mmd_cpp
+all.equal(mmd_r, mmd_cpp, tolerance = 1e-12)
+```
+
+## 11. Remaining development
+
+Future development will include empirical Type I error
+and power studies, computational benchmarking,
+additional numerical validation, expanded test coverage,
+and verification against the motivating paper.
+
+## References
+
+Shi, X., Du, J., and Xie, T. (2025).
+Multivariate two-sample tests via random projection.
+*Statistics and Computing*, 35, Article 98.
+
+https://doi.org/10.1007/s11222-025-10627-5
